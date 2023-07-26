@@ -571,21 +571,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "bevy_flycam"
-version = "0.11.0"
-source = "git+https://github.com/sburris0/bevy_flycam.git?branch=bevy_0.11#4ed8bcebac4210f30c7d757c3fd2fba7a1d275e2"
-dependencies = [
- "bevy",
-]
-
-[[package]]
 name = "bevy_game"
 version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_asset_loader",
  "bevy_egui",
- "bevy_infinite_grid",
  "bevy_kira_audio",
  "bevy_obj",
  "crossbeam-channel",
@@ -660,14 +651,6 @@ dependencies = [
  "bevy_reflect",
  "bevy_utils",
  "smallvec",
-]
-
-[[package]]
-name = "bevy_infinite_grid"
-version = "0.7.0"
-dependencies = [
- "bevy",
- "bevy_flycam",
 ]
 
 [[package]]

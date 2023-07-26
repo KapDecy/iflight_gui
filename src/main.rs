@@ -11,7 +11,7 @@ use bevy::winit::WinitWindows;
 use bevy::DefaultPlugins;
 use bevy_egui::egui::{Color32, Frame, RichText};
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
-use bevy_infinite_grid::{InfiniteGrid, InfiniteGridBundle, InfiniteGridPlugin};
+// use bevy_infinite_grid::{InfiniteGrid, InfiniteGridBundle, InfiniteGridPlugin};
 use bevy_obj::ObjPlugin;
 use gyro::{open, GyroPlugin, Port};
 use winit::window::Icon;
