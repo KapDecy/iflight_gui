@@ -1,12 +1,10 @@
 use std::f32::consts::PI;
-use std::io::Read;
 use std::io::{BufRead, BufReader};
 use std::process::exit;
 use std::time::Instant;
 
 use bevy::prelude::*;
 use crossbeam_channel::Receiver;
-use serialport::SerialPort;
 
 #[derive(Resource)]
 pub struct Port {
@@ -14,99 +12,55 @@ pub struct Port {
     pub last_transmition: Option<Instant>,
 }
 
-pub fn open(
-    port_path: &std::path::Path,
-    baudrate: u32,
-) -> Receiver<Vec<f32>> {
+const DELIMITER: u8 = 255;
+
+pub fn open(port_path: &std::path::Path, baudrate: u32) -> Receiver<Vec<f32>> {
     let (rx, tx) = crossbeam_channel::bounded(1);
-    let mut port = serialport::new(
-        port_path.to_string_lossy(),
-        baudrate,
-    )
-    .timeout(std::time::Duration::from_secs(2))
-    .open_native();
+    let mut port = serialport::new(port_path.to_string_lossy(), baudrate)
+        .timeout(std::time::Duration::from_secs(20))
+        .open_native();
 
     while port.is_err() {
-        port = serialport::new(
-            port_path.to_string_lossy(),
-            baudrate,
-        )
-        .timeout(std::time::Duration::from_secs(2))
-        .open_native();
+        port = serialport::new(port_path.to_string_lossy(), baudrate)
+            .timeout(std::time::Duration::from_secs(20))
+            .open_native();
     }
 
     let port = port.unwrap();
-    // port.clear(serialport::ClearBuffer::All).unwrap();
     let mut reader = BufReader::new(port);
-    let mut bb = vec![];
-    reader
-        .read_until(
-            '\n' as u8, &mut bb,
-        )
-        .unwrap();
-    println!(
-        "{}: {:?}",
-        bb.len(),
-        bb
-    );
     std::thread::spawn(move || {
-        // let spliter = reader.split(b's');
         let mut buf = vec![];
         loop {
-            match reader.read_until(
-                '\n' as u8, &mut buf,
-            ) {
+            match reader.read_until(DELIMITER, &mut buf) {
                 Ok(_n) => {
+                    if buf[buf.len() - 2] != 254 {
+                        continue;
+                    }
+
+                    if buf.len() != 50 {
+                        buf.clear();
+                        continue;
+                    }
+
                     let fbuf = buf
                         .chunks_exact(4)
                         .map(|chuck| f32::from_le_bytes(chuck.try_into().unwrap()))
                         .collect::<Vec<f32>>();
                     if 12 == fbuf.len() {
                         rx.send(fbuf).unwrap();
+                        buf.clear();
                     } else {
-                        println!(
-                            "{}: {:?}",
-                            fbuf.len(),
-                            fbuf
-                        );
+                        println!("last {}, {}: {:?}", buf.last().unwrap(), fbuf.len(), fbuf);
                     }
-
-                    // assert_eq!(12, fbuf.len());
-                    // rx.send(fbuf).unwrap();
 
                     buf.clear();
                 }
                 Err(e) => {
-                    if !matches!(
-                        e.kind(),
-                        std::io::ErrorKind::TimedOut
-                    ) {
+                    if !matches!(e.kind(), std::io::ErrorKind::TimedOut) {
                         exit(1);
                     }
                 }
             }
-            // let mut buf = [0u8; 49];
-            // // let mut buf = String::new();
-
-            // match port.read_exact(&mut buf) {
-            //     Ok(_n) => {
-            //         let fbuf = buf
-            //             .chunks(4)
-            //             .map(|chuck| f32::from_le_bytes(chuck.try_into().unwrap()))
-            //             .collect::<Vec<f32>>();
-            //         assert_eq!(12, fbuf.len());
-            //         rx.send(fbuf).unwrap();
-            //     }
-            //     Err(e) => {
-            //         // assert!(e.kind() == std::io::ErrorKind::TimedOut);
-            //         if !matches!(
-            //             e.kind(),
-            //             std::io::ErrorKind::TimedOut
-            //         ) {
-            //             exit(1);
-            //         }
-            //     }
-            // }
         }
     });
 
@@ -130,17 +84,9 @@ pub(crate) enum GyroState {
 }
 
 impl Plugin for GyroPlugin {
-    fn build(
-        &self,
-        app: &mut App,
-    ) {
-        app.add_systems(
-            Startup, gyro_spawn,
-        )
-        .add_systems(
-            Update,
-            gyro_update,
-        );
+    fn build(&self, app: &mut App) {
+        app.add_systems(Startup, gyro_spawn)
+            .add_systems(Update, gyro_update);
     }
 }
 
@@ -152,12 +98,10 @@ pub fn gyro_spawn(
     coms.spawn((
         PbrBundle {
             mesh: asset_server.load("Drone2.obj"),
-            material: materials.add(
-                StandardMaterial {
-                    base_color: Color::RED,
-                    ..Default::default()
-                },
-            ),
+            material: materials.add(StandardMaterial {
+                base_color: Color::RED,
+                ..Default::default()
+            }),
             transform: Transform::from_scale([1.; 3].into()),
             ..default()
         },
@@ -171,13 +115,7 @@ pub fn gyro_spawn(
     ));
 }
 
-pub fn gyro_update(
-    mut port: ResMut<Port>,
-    mut query: Query<(
-        &mut Transform,
-        &mut GyroComponent,
-    )>,
-) {
+pub fn gyro_update(mut port: ResMut<Port>, mut query: Query<(&mut Transform, &mut GyroComponent)>) {
     // let last_transmit = port.last_transmition;
     if let Some(p) = port.rx.clone() {
         match p.try_recv() {
@@ -187,24 +125,26 @@ pub fn gyro_update(
                 let (mut telo, mut gyro) = query.get_single_mut().unwrap();
                 match &mut gyro.state {
                     GyroState::Calibration(cal_v) => {
-                        cal_v.push((
-                            v[0], v[1], v[2],
-                        ));
+                        cal_v.push((v[0], v[1], v[2]));
                         if cal_v.len() > 100 {
-                            let mean_x = cal_v.iter().map(|x| x.0).sum::<f32>() / cal_v.len() as f32;
-                            let mean_y = cal_v.iter().map(|x| x.1).sum::<f32>() / cal_v.len() as f32;
-                            let mean_z = cal_v.iter().map(|x| x.2).sum::<f32>() / cal_v.len() as f32;
-                            gyro.offset = (
-                                mean_x, mean_y, mean_z,
-                            );
+                            let mean_x =
+                                cal_v.iter().map(|x| x.0).sum::<f32>() / cal_v.len() as f32;
+                            let mean_y =
+                                cal_v.iter().map(|x| x.1).sum::<f32>() / cal_v.len() as f32;
+                            let mean_z =
+                                cal_v.iter().map(|x| x.2).sum::<f32>() / cal_v.len() as f32;
+                            gyro.offset = (mean_x, mean_y, mean_z);
                             gyro.state = GyroState::Active;
                         }
                     }
                     GyroState::Active => {
                         if let Some(then) = port.last_transmition {
-                            let gx = (v[0] - gyro.offset.0) * then.elapsed().as_secs_f32() * PI / 180.;
-                            let gy = (v[2] - gyro.offset.2) * then.elapsed().as_secs_f32() * PI / 180.;
-                            let gz = (v[1] - gyro.offset.1) * then.elapsed().as_secs_f32() * PI / 180.;
+                            let gx =
+                                (v[0] - gyro.offset.0) * then.elapsed().as_secs_f32() * PI / 180.;
+                            let gy =
+                                (v[2] - gyro.offset.2) * then.elapsed().as_secs_f32() * PI / 180.;
+                            let gz =
+                                (v[1] - gyro.offset.1) * then.elapsed().as_secs_f32() * PI / 180.;
 
                             // let axr = v[3] + 1.;
                             // let ayr = v[5] + 1.;
