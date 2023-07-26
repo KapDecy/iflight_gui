@@ -1,0 +1,130 @@
+// disable console on windows for release builds
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+mod gyro;
+
+use std::io::Cursor;
+
+use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
+use bevy::winit::WinitWindows;
+use bevy::DefaultPlugins;
+use bevy_egui::egui::{Color32, Frame, RichText};
+use bevy_egui::{egui, EguiContexts, EguiPlugin};
+use bevy_infinite_grid::{InfiniteGrid, InfiniteGridBundle, InfiniteGridPlugin};
+use bevy_obj::ObjPlugin;
+use gyro::{open, GyroPlugin, Port};
+use winit::window::Icon;
+
+fn main() {
+    App::new()
+        .insert_resource(Port {
+            rx: Some(open(
+                std::path::Path::new("/dev/ttyUSB0"),
+                115200,
+            )),
+            last_transmition: None,
+        })
+        // .insert_resource(Msaa::Off)
+        // .insert_resource(ClearColor(
+        //     Color::rgb(1., 0.4, 0.4),
+        // ))
+        .add_plugins(
+            DefaultPlugins.set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "Bevy game".to_string(), // ToDo
+                    resolution: (800., 600.).into(),
+                    canvas: Some("#bevy".to_owned()),
+                    ..default()
+                }),
+                ..default()
+            }),
+        )
+        // .add_plugins(InfiniteGridPlugin)
+        .add_plugins(EguiPlugin)
+        .add_plugins(ObjPlugin)
+        .add_plugins(GyroPlugin)
+        .add_systems(
+            Startup,
+            (
+                set_window_icon,
+                setup_camera,
+                configure_visuals_system,
+            ),
+        )
+        .add_systems(
+            Update,
+            (ui_example_system,),
+        )
+        .run();
+}
+
+// Sets the icon on windows and X11
+fn set_window_icon(
+    windows: NonSend<WinitWindows>,
+    primary_window: Query<Entity, With<PrimaryWindow>>,
+) {
+    let primary_entity = primary_window.single();
+    let primary = windows.get_window(primary_entity).unwrap();
+    let icon_buf = Cursor::new(include_bytes!(
+        // "../build/macos/AppIcon.iconset/icon_256x256.png"
+        "../build/mtuci_logo.png"
+    ));
+    if let Ok(image) = image::load(
+        icon_buf,
+        image::ImageFormat::Png,
+    ) {
+        let image = image.into_rgba8();
+        let (width, height) = image.dimensions();
+        let rgba = image.into_raw();
+        let icon = Icon::from_rgba(
+            rgba, width, height,
+        )
+        .unwrap();
+        primary.set_window_icon(Some(icon));
+    };
+}
+
+fn setup_camera(mut commands: Commands) {
+    // commands.spawn(
+    //     InfiniteGridBundle {
+    //         grid: InfiniteGrid {
+    //             // shadow_color: None,
+    //             ..Default::default()
+    //         },
+    //         ..Default::default()
+    //     },
+    // );
+    commands.spawn(
+        Camera3dBundle {
+            transform: Transform::from_xyz(-10.0, 5., 0.).looking_at(
+                Vec3::new(0., 0., 0.),
+                Vec3::Y,
+            ),
+            ..default()
+        },
+    );
+}
+
+fn configure_visuals_system(mut contexts: EguiContexts) {
+    contexts.ctx_mut().set_visuals(egui::Visuals {
+        window_rounding: 0.0.into(),
+        ..Default::default()
+    });
+}
+
+fn ui_example_system(mut contexts: EguiContexts) {
+    let ctx = contexts.ctx_mut();
+
+    egui::CentralPanel::default()
+        .frame(Frame::default().fill(Color32::TRANSPARENT))
+        .show(ctx, |ui| {
+            let rt = egui::widgets::Label::new(
+                RichText::new("Teext")
+                    .background_color(Color32::BLUE)
+                    .color(Color32::YELLOW)
+                    .size(15.),
+            );
+            ui.add(rt);
+        });
+}
