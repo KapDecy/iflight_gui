@@ -72,9 +72,9 @@ pub struct GyroPlugin;
 #[derive(Component)]
 pub struct GyroComponent {
     state: GyroState,
-    x: f32,
-    y: f32,
-    z: f32,
+    x: Option<f32>,
+    y: Option<f32>,
+    z: Option<f32>,
     offset: (f32, f32, f32),
 }
 
@@ -107,9 +107,9 @@ pub fn gyro_spawn(
         },
         GyroComponent {
             state: GyroState::Calibration(vec![]),
-            x: 0.0,
-            y: 0.0,
-            z: 0.0,
+            x: None,
+            y: None,
+            z: None,
             offset: (0.0, 0.0, 0.0),
         },
     ));
@@ -121,7 +121,7 @@ pub fn gyro_update(mut port: ResMut<Port>, mut query: Query<(&mut Transform, &mu
         match p.try_recv() {
             Ok(v) => {
                 let now = Instant::now();
-                println!("{:?}", v);
+                println!("{:#?}", v);
                 let (mut telo, mut gyro) = query.get_single_mut().unwrap();
                 match &mut gyro.state {
                     GyroState::Calibration(cal_v) => {
@@ -139,16 +139,80 @@ pub fn gyro_update(mut port: ResMut<Port>, mut query: Query<(&mut Transform, &mu
                     }
                     GyroState::Active => {
                         if let Some(then) = port.last_transmition {
-                            let gx =
-                                (v[0] - gyro.offset.0) * then.elapsed().as_secs_f32() * PI / 180.;
-                            let gy =
-                                (v[2] - gyro.offset.2) * then.elapsed().as_secs_f32() * PI / 180.;
-                            let gz =
-                                (v[1] - gyro.offset.1) * then.elapsed().as_secs_f32() * PI / 180.;
+                            // let gx =
+                            //     (v[0] - gyro.offset.0) * then.elapsed().as_secs_f32() * PI / 180.;
+                            // let gy =
+                            //     (v[2] - gyro.offset.2) * then.elapsed().as_secs_f32() * PI / 180.;
+                            // let gz =
+                            //     (v[1] - gyro.offset.1) * then.elapsed().as_secs_f32() * PI / 180.;
 
-                            // let axr = v[3] + 1.;
-                            // let ayr = v[5] + 1.;
-                            // let azr = v[4] + 1.;
+                            // row acc data
+                            let rx = v[3];
+                            let ry = v[5];
+                            let rz = v[4];
+
+                            // let r = (rx.powi(2) + ry.powi(2) + rz.powi(2)).sqrt();
+                            // let arx = (rx / r).acos();
+                            // let ary = (ry / r).acos();
+                            // let arz = (rz / r).acos();
+
+                            let miu = 0.001;
+                            let roll = ry.atan2((rz * rz + miu * rx * rx).sqrt() * rz.signum());
+                            let pitch = (-rx).atan2((ry * ry + rz * rz).sqrt());
+
+                            // println!("roll {}", roll / PI * 180.);
+                            // println!("pitch {}", pitch / PI * 180.);
+
+                            if gyro.x.is_some() {
+                                // let ax = arx - gyro.x.unwrap();
+                                // let ay = ary - gyro.y.unwrap();
+                                // let az = arz - gyro.z.unwrap();
+
+                                let ax = roll - gyro.x.unwrap();
+                                let az = pitch - gyro.z.unwrap();
+
+                                telo.rotate_local_x(ax);
+                                telo.rotate_local_z(az);
+
+                                // telo.rotate_local_x(ax);
+                                // telo.rotate_local_y(ay);
+                                // telo.rotate_local_z(az);
+                            } else {
+                                telo.rotate_local_x(roll);
+                                telo.rotate_local_z(pitch);
+
+                                // telo.rotate_local_x(arx);
+                                // telo.rotate_local_y(ary);
+                                // telo.rotate_local_z(arz);
+                            }
+                            gyro.x = Some(roll);
+                            gyro.z = Some(pitch);
+
+                            // gyro.x = Some(arx);
+                            // gyro.y = Some(ary);
+                            // gyro.z = Some(arz);
+
+                            // roll = arx; pitch = ary; yaw = arz;
+                            // qx = np.sin(roll/2) * np.cos(pitch/2) * np.cos(yaw/2) - np.cos(roll/2) * np.sin(pitch/2) * np.sin(yaw/2)
+                            // qy = np.cos(roll/2) * np.sin(pitch/2) * np.cos(yaw/2) + np.sin(roll/2) * np.cos(pitch/2) * np.sin(yaw/2)
+                            // qz = np.cos(roll/2) * np.cos(pitch/2) * np.sin(yaw/2) - np.sin(roll/2) * np.sin(pitch/2) * np.cos(yaw/2)
+                            // qw = np.cos(roll/2) * np.cos(pitch/2) * np.cos(yaw/2) + np.sin(roll/2) * np.sin(pitch/2) * np.sin(yaw/2)
+
+                            // return [qx, qy, qz, qw]
+
+                            // let qx = ((arx / 2.0).sin() * (ary / 2.).cos() * (arz / 2.0).cos())
+                            //     - ((arx / 2.0).cos() * (ary / 2.).sin() * (arz / 2.0).sin());
+
+                            // let qy = ((arx / 2.0).cos() * (ary / 2.).sin() * (arz / 2.0).cos())
+                            //     + ((arx / 2.0).sin() * (ary / 2.).cos() * (arz / 2.0).sin());
+
+                            // let qz = ((arx / 2.0).cos() * (ary / 2.).cos() * (arz / 2.0).sin())
+                            //     - ((arx / 2.0).sin() * (ary / 2.).sin() * (arz / 2.0).cos());
+
+                            // let qw = ((arx / 2.0).cos() * (ary / 2.).cos() * (arz / 2.0).cos())
+                            //     + ((arx / 2.0).sin() * (ary / 2.).sin() * (arz / 2.0).sin());
+
+                            // telo.rotation = Quat::from_xyzw(qx, qy, qz, qw);
 
                             // // angle_accel = arctg( Ay / sqrt( Ax^2 + Az^2 ) )
                             // // let ax = (axr / (azr.powi(2) + ayr.powi(2)).sqrt()).atan();
@@ -165,37 +229,10 @@ pub fn gyro_update(mut port: ResMut<Port>, mut query: Query<(&mut Transform, &mu
                             // let y = hpf * (gy) + lpf * ay;
                             // let z = hpf * (gz) - lpf * az;
 
-                            telo.rotate_local_x(gx);
-                            telo.rotate_local_y(-gy);
-                            telo.rotate_local_z(gz);
-
-                            // // AHRS VERSION
-                            // let gx = (v[0] - gyro.offset.0) * PI / 180.;
-                            // let gy = (v[2] - gyro.offset.2) * PI / 180.;
-                            // let gz = (v[1] - gyro.offset.1) * PI / 180.;
-                            // let gyroscope = Vector3::new(gx, gy, gz);
-                            // let accelerometer = Vector3::new(
-                            //     -v[3], -v[5], -v[4],
-                            // );
-                            // let quat = port
-                            //     .ahrs
-                            //     .update_imu(
-                            //         &gyroscope,
-                            //         &accelerometer,
-                            //     )
-                            //     .unwrap();
-
-                            // let (x, y, z) = quat.euler_angles();
-                            // let xx = x - gyro.x;
-                            // let yy = y - gyro.y;
-                            // let zz = z - gyro.z;
-                            // // TODO: Add previous local rotation (to GyroComponent?), and then substract new rotation from previous rotation
-                            // telo.rotate_local_x(xx);
-                            // telo.rotate_local_y(-yy);
-                            // telo.rotate_local_z(zz);
-                            // gyro.x = x;
-                            // gyro.y = y;
-                            // gyro.z = z;
+                            // Only gyro
+                            // telo.rotate_local_x(gx);
+                            // telo.rotate_local_y(-gy);
+                            // telo.rotate_local_z(gz);
                         }
                     }
                 }
