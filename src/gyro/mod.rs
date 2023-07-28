@@ -71,14 +71,15 @@ pub struct GyroPlugin;
 
 #[derive(Component)]
 pub struct GyroComponent {
-    state: GyroState,
-    x: Option<f32>,
-    y: Option<f32>,
-    z: Option<f32>,
-    offset: (f32, f32, f32),
+    pub acc_weight: f32,
+    pub state: GyroState,
+    pub x: Option<f32>,
+    pub y: Option<f32>,
+    pub z: Option<f32>,
+    pub offset: (f32, f32, f32),
 }
 
-pub(crate) enum GyroState {
+pub enum GyroState {
     Calibration(Vec<(f32, f32, f32)>),
     Active,
 }
@@ -106,6 +107,7 @@ pub fn gyro_spawn(
             ..default()
         },
         GyroComponent {
+            acc_weight: 1.0,
             state: GyroState::Calibration(vec![]),
             x: None,
             y: None,
@@ -139,12 +141,12 @@ pub fn gyro_update(mut port: ResMut<Port>, mut query: Query<(&mut Transform, &mu
                     }
                     GyroState::Active => {
                         if let Some(then) = port.last_transmition {
-                            // let gx =
-                            //     (v[0] - gyro.offset.0) * then.elapsed().as_secs_f32() * PI / 180.;
-                            // let gy =
-                            //     (v[2] - gyro.offset.2) * then.elapsed().as_secs_f32() * PI / 180.;
-                            // let gz =
-                            //     (v[1] - gyro.offset.1) * then.elapsed().as_secs_f32() * PI / 180.;
+                            let gx =
+                                (v[0] - gyro.offset.0) * then.elapsed().as_secs_f32() * PI / 180.;
+                            let gy =
+                                (v[2] - gyro.offset.2) * then.elapsed().as_secs_f32() * PI / 180.;
+                            let gz =
+                                (v[1] - gyro.offset.1) * then.elapsed().as_secs_f32() * PI / 180.;
 
                             // row acc data
                             let rx = v[3];
@@ -171,8 +173,19 @@ pub fn gyro_update(mut port: ResMut<Port>, mut query: Query<(&mut Transform, &mu
                                 let ax = roll - gyro.x.unwrap();
                                 let az = pitch - gyro.z.unwrap();
 
-                                telo.rotate_local_x(ax);
-                                telo.rotate_local_z(az);
+                                let aw = gyro.acc_weight;
+
+                                let xr = ax * aw + gx * (1. - aw);
+                                let yr = gy;
+                                let zr = az * aw + gz * (1. - aw);
+
+                                telo.rotate_local_x(xr);
+                                telo.rotate_local_y(yr);
+                                telo.rotate_local_z(zr);
+
+                                gyro.x = Some(gyro.x.unwrap() + xr);
+                                gyro.y = Some(gyro.y.unwrap() + yr);
+                                gyro.z = Some(gyro.z.unwrap() + zr);
 
                                 // telo.rotate_local_x(ax);
                                 // telo.rotate_local_y(ay);
@@ -180,13 +193,14 @@ pub fn gyro_update(mut port: ResMut<Port>, mut query: Query<(&mut Transform, &mu
                             } else {
                                 telo.rotate_local_x(roll);
                                 telo.rotate_local_z(pitch);
+                                gyro.x = Some(roll);
+                                gyro.y = Some(0.);
+                                gyro.z = Some(pitch);
 
                                 // telo.rotate_local_x(arx);
                                 // telo.rotate_local_y(ary);
                                 // telo.rotate_local_z(arz);
                             }
-                            gyro.x = Some(roll);
-                            gyro.z = Some(pitch);
 
                             // gyro.x = Some(arx);
                             // gyro.y = Some(ary);
