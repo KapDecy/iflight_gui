@@ -160,7 +160,7 @@ pub fn gyro_update(mut port: ResMut<Port>, mut query: Query<(&mut Transform, &mu
 
                             let miu = 0.001;
                             let roll = ry.atan2((rz * rz + miu * rx * rx).sqrt() * rz.signum());
-                            let pitch = (-rx).atan2((ry * ry + rz * rz).sqrt());
+                            let pitch = (rx).atan2((ry * ry + rz * rz).sqrt());
 
                             // println!("roll {}", roll / PI * 180.);
                             // println!("pitch {}", pitch / PI * 180.);
