@@ -1,8 +1,6 @@
 // disable console on windows for release builds
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod gyro;
-
 use std::io::Cursor;
 
 use bevy::prelude::*;
@@ -13,13 +11,14 @@ use bevy_egui::egui::{Color32, Frame, RichText};
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
 // use bevy_infinite_grid::{InfiniteGrid, InfiniteGridBundle, InfiniteGridPlugin};
 use bevy_obj::ObjPlugin;
-use gyro::{open, GyroComponent, GyroPlugin, Port};
+use gui::gyro::{open, open_tcp, GyroComponent, GyroPlugin, Port};
 use winit::window::Icon;
 
 fn main() {
     App::new()
         .insert_resource(Port {
             rx: Some(open(std::path::Path::new("/dev/ttyUSB0"), 115200)),
+            // rx: Some(open_tcp()),
             last_transmition: None,
         })
         // .insert_resource(Msaa::Off)
@@ -78,7 +77,8 @@ fn setup_camera(mut commands: Commands) {
     //     },
     // );
     commands.spawn(Camera3dBundle {
-        transform: Transform::from_xyz(-10.0, 5., 0.).looking_at(Vec3::new(0., 0., 0.), Vec3::Y),
+        // transform: Transform::from_xyz(0., 0., -15.).looking_at(Vec3::new(0., 0., 0.), Vec3::Y),
+        transform: Transform::from_xyz(0., 15., 0.).looking_at(Vec3::new(0., 0., 0.), Vec3::X),
         ..default()
     });
 }
@@ -92,7 +92,7 @@ fn configure_visuals_system(mut contexts: EguiContexts) {
 
 fn ui_example_system(mut contexts: EguiContexts, mut query: Query<&mut GyroComponent>) {
     let ctx = contexts.ctx_mut();
-    let mut gyro = query.get_single_mut().unwrap();
+    let mut gyro = query.iter_mut().next().unwrap();
 
     egui::CentralPanel::default()
         .frame(Frame::default().fill(Color32::TRANSPARENT))
