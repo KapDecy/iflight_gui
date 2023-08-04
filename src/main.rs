@@ -17,8 +17,8 @@ use winit::window::Icon;
 fn main() {
     App::new()
         .insert_resource(Port {
-            rx: Some(open(std::path::Path::new("/dev/ttyUSB0"), 115200)),
-            // rx: Some(open_tcp()),
+            // rx: Some(open(std::path::Path::new("/dev/ttyUSB0"), 115200)),
+            rx: Some(open_tcp()),
             last_transmition: None,
         })
         // .insert_resource(Msaa::Off)
@@ -77,8 +77,8 @@ fn setup_camera(mut commands: Commands) {
     //     },
     // );
     commands.spawn(Camera3dBundle {
-        // transform: Transform::from_xyz(0., 0., -15.).looking_at(Vec3::new(0., 0., 0.), Vec3::Y),
-        transform: Transform::from_xyz(0., 15., 0.).looking_at(Vec3::new(0., 0., 0.), Vec3::X),
+        transform: Transform::from_xyz(0., 0., -15.).looking_at(Vec3::new(0., 0., 0.), Vec3::Y),
+        // transform: Transform::from_xyz(0., 15., 0.).looking_at(Vec3::new(0., 0., 0.), Vec3::X),
         ..default()
     });
 }

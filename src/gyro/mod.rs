@@ -37,16 +37,19 @@ pub fn open(port_path: &std::path::Path, baudrate: u32) -> Receiver<Vec<f32>> {
                         continue;
                     }
 
-                    if buf.len() != 50 {
+                    if buf.len() != 54 {
                         buf.clear();
                         continue;
                     }
 
-                    let fbuf = buf
+                    let mut fbuf = buf[0..48]
                         .chunks_exact(4)
                         .map(|chuck| f32::from_le_bytes(chuck.try_into().unwrap()))
                         .collect::<Vec<f32>>();
+                    let time = u32::from_le_bytes(buf[48..52].try_into().unwrap());
+
                     if 12 == fbuf.len() {
+                        fbuf.push(time as f32 / 1.0e6);
                         // println!("{:#?}", fbuf);
                         tx.send(fbuf).unwrap();
                         buf.clear();
@@ -78,9 +81,11 @@ pub fn open_tcp() -> Receiver<Vec<f32>> {
         loop {
             let mut buf = [0u8; 54];
             stream.read_exact(&mut buf).unwrap();
-            if buf[buf.len() - 2] != 254 {
-                continue;
-            }
+            // println!("{:?}", buf);
+            // println!("read: {:?}", );
+            // if buf[buf.len() - 2] != 254 {
+            //     continue;
+            // }
 
             let mut fbuf = buf[0..48]
                 .chunks_exact(4)
@@ -91,7 +96,7 @@ pub fn open_tcp() -> Receiver<Vec<f32>> {
             if 12 == fbuf.len() {
                 // TODO
                 fbuf.push(time as f32 / 1.0e6);
-                println!("{:#?}", fbuf);
+                // println!("{:#?}", fbuf);
                 tx.send(fbuf).unwrap();
                 // buf.clear();
             } else {
@@ -114,6 +119,7 @@ pub struct GyroComponent {
     pub x: Option<f32>,
     pub y: Option<f32>,
     pub z: Option<f32>,
+    pub signy: f32,
     pub offset: (f32, f32, f32),
     pub variant: DroneVariant,
 }
@@ -138,8 +144,8 @@ impl Plugin for GyroPlugin {
 }
 
 // const INIT_ACC_WEIGHT: f32 = 0.;
-// const INIT_ACC_WEIGHT: f32 = 0.08;
-const INIT_ACC_WEIGHT: f32 = 1.;
+const INIT_ACC_WEIGHT: f32 = 0.08;
+// const INIT_ACC_WEIGHT: f32 = 1.;
 
 pub fn gyro_spawn(
     mut coms: Commands,
@@ -162,6 +168,7 @@ pub fn gyro_spawn(
             x: None,
             y: None,
             z: None,
+            signy: 1.0,
             offset: (0.0, 0.0, 0.0),
             variant: DroneVariant::Both,
         },
@@ -183,6 +190,7 @@ pub fn gyro_spawn(
             x: None,
             y: None,
             z: None,
+            signy: 1.0,
             offset: (0.0, 0.0, 0.0),
             variant: DroneVariant::Gyro,
         },
@@ -204,6 +212,7 @@ pub fn gyro_spawn(
             x: None,
             y: None,
             z: None,
+            signy: 1.0,
             offset: (0.0, 0.0, 0.0),
             variant: DroneVariant::Acc,
         },
@@ -236,167 +245,101 @@ pub fn gyro_update(mut port: ResMut<Port>, mut query: Query<(&mut Transform, &mu
                         GyroState::Active => {
                             match gyro.variant {
                                 DroneVariant::Gyro => {
-                                    if let Some(then) = port.last_transmition {
-                                        let gx = (v[0] - gyro.offset.0)
-                                            * then.elapsed().as_secs_f32()
-                                            * PI
-                                            / 180.;
-                                        let gz = (v[1] - gyro.offset.1)
-                                            * then.elapsed().as_secs_f32()
-                                            * PI
-                                            / 180.;
+                                    let gx = (v[0] - gyro.offset.0) * v[12] * PI / 180.;
+                                    let gz = (v[1] - gyro.offset.1) * v[12] * PI / 180.;
 
-                                        // row acc data
-                                        let rx = -v[3];
-                                        let ry = v[5];
-                                        let rz = -v[4];
+                                    if gyro.x.is_some() {
+                                        let prevx = gyro.x.unwrap();
+                                        let prevz = gyro.z.unwrap();
 
-                                        // let sign = -ry.signum();
-                                        // println!("sign: {sign}");
-                                        let roll = (rz / (rx.powi(2) + ry.powi(2)).sqrt()).atan();
-                                        let pitch =
-                                            -((rx / (ry.powi(2) + rz.powi(2)).sqrt()).atan());
+                                        let gyrox = prevx + gx;
+                                        let gyroz = prevz + gz;
 
-                                        if gyro.x.is_some() {
-                                            let aw = 0.0;
+                                        let xr = gyrox;
+                                        let zr = gyroz;
 
-                                            let prevx = gyro.x.unwrap();
-                                            let prevz = gyro.z.unwrap();
-
-                                            let gyrox = prevx + gx;
-                                            let gyroz = prevz + gz;
-
-                                            let xr = roll * aw + gyrox * (1. - aw);
-                                            let zr = pitch * aw + gyroz * (1. - aw);
-
-                                            // println!("gyro x: {gyrox}\ngyroz: {gyroz}\n\nroll: {roll}\npitch: {pitch}\n\nestimated x: {xr}\nestimated z: {zr}\n\n\n");
-
-                                            telo.rotation =
-                                                Quat::from_euler(EulerRot::XYZ, xr, 0.0, zr);
-                                            gyro.x = Some(xr);
-                                            gyro.z = Some(zr);
-                                        } else {
-                                            gyro.x = Some(roll);
-                                            gyro.y = Some(0.);
-                                            gyro.z = Some(pitch);
-                                        }
+                                        // println!("gyro x: {gyrox}\ngyroz: {gyroz}\n\nroll: {roll}\npitch: {pitch}\n\nestimated x: {xr}\nestimated z: {zr}\n\n\n");
+                                        println!(
+                                            "only gyrox: {}\nonly gyroz: {}",
+                                            gyrox / PI * 180.0,
+                                            gyroz / PI * 180.0
+                                        );
+                                        telo.rotation =
+                                            Quat::from_euler(EulerRot::XYZ, xr, 0.0, zr);
+                                        gyro.x = Some(xr);
+                                        gyro.z = Some(zr);
+                                    } else {
+                                        gyro.x = Some(0.);
+                                        gyro.y = Some(0.);
+                                        gyro.z = Some(0.);
                                     }
                                 }
                                 DroneVariant::Acc => {
-                                    if let Some(then) = port.last_transmition {
-                                        let gx = (v[0] - gyro.offset.0)
-                                            * then.elapsed().as_secs_f32()
-                                            * PI
-                                            / 180.;
-                                        let gz = (v[1] - gyro.offset.1)
-                                            * then.elapsed().as_secs_f32()
-                                            * PI
-                                            / 180.;
+                                    // raw acc data
+                                    let rx = -v[3];
+                                    let ry = v[5];
+                                    let rz = -v[4];
 
-                                        // row acc data
-                                        let rx = -v[3];
-                                        let ry = v[5];
-                                        let rz = -v[4];
+                                    let roll = f32::atan2(rz, (rx * rx + ry * ry).sqrt());
+                                    // let roll = 0.0;
+                                    let pitch = f32::atan2(-rx, (ry * ry + rz * rz).sqrt());
 
-                                        let sign = -ry.signum();
-                                        let roll = (rz / (rx.powi(2) + ry.powi(2)).sqrt()).atan();
-                                        let pitch =
-                                            -((rx / (ry.powi(2) + rz.powi(2)).sqrt()).atan());
+                                    // let roll = -rz.atan2(ry);
+                                    // let pitch = -rx.atan2(ry);
 
-                                        // println!(
-                                        //     "sign: {}\nroll: {}\n pitch: {}",
-                                        //     sign,
-                                        //     roll / PI * 180.,
-                                        //     pitch / PI * 180.
-                                        // );
+                                    println!(
+                                        "only roll: {}\nonly pitch: {}\n\n",
+                                        roll / PI * 180.,
+                                        pitch / PI * 180.
+                                    );
 
-                                        if gyro.x.is_some() {
-                                            let aw = 1.0;
-
-                                            let prevx = gyro.x.unwrap();
-                                            let prevz = gyro.z.unwrap();
-
-                                            let gyrox = prevx + gx;
-                                            let gyroz = prevz + gz;
-
-                                            let xr = roll * aw + gyrox * (1. - aw);
-                                            let zr = pitch * aw + gyroz * (1. - aw);
-
-                                            // println!("gyro x: {gyrox}\ngyroz: {gyroz}\n\nroll: {roll}\npitch: {pitch}\n\nestimated x: {xr}\nestimated z: {zr}\n\n\n");
-
-                                            telo.rotation =
-                                                Quat::from_euler(EulerRot::XYZ, xr, 0.0, zr);
-                                            gyro.x = Some(xr);
-                                            gyro.z = Some(zr);
-                                        } else {
-                                            gyro.x = Some(roll);
-                                            gyro.y = Some(0.);
-                                            gyro.z = Some(pitch);
-                                        }
-                                    }
+                                    telo.rotation =
+                                        Quat::from_euler(EulerRot::XYZ, roll, 0.0, pitch);
                                 }
                                 DroneVariant::Both => {
-                                    if let Some(then) = port.last_transmition {
-                                        let gx = (v[0] - gyro.offset.0)
-                                            * then.elapsed().as_secs_f32()
-                                            * PI
-                                            / 180.;
-                                        let gz = (v[1] - gyro.offset.1)
-                                            * then.elapsed().as_secs_f32()
-                                            * PI
-                                            / 180.;
+                                    let gx = (v[0] - gyro.offset.0) * v[12] * PI / 180.;
+                                    let gz = (v[1] - gyro.offset.1) * v[12] * PI / 180.;
 
-                                        // row acc data
-                                        let rx = -v[3];
-                                        let ry = v[5];
-                                        let rz = -v[4];
+                                    // row acc data
+                                    let rx = -v[3];
+                                    let ry = v[5];
+                                    let rz = -v[4];
 
-                                        let signy = ry.signum();
-                                        // // let roll = (rz / (rx.powi(2) + ry.powi(2)).sqrt()).atan();
-                                        // // let roll = if sign > 0. { roll } else { PI - roll };
+                                    let signy = ry.signum();
 
-                                        let roll =
-                                            f32::atan2(rz, signy * (rx * rx + ry * ry).sqrt());
+                                    let roll = f32::atan2(rz, signy * (rx * rx + ry * ry).sqrt());
+                                    let pitch = f32::atan2(-rx, signy * (ry * ry + rz * rz).sqrt());
 
-                                        // let pitch =
-                                        //     -((rx / (ry.powi(2) + rz.powi(2)).sqrt()).atan());
-                                        // let pitch = if sign > 0. { pitch } else { -pitch - PI };
-                                        let pitch =
-                                            -f32::atan2(rx, signy * (ry * ry + rz * rz).sqrt());
+                                    if gyro.x.is_some() {
+                                        let aw = gyro.acc_weight;
 
-                                        if gyro.x.is_some() {
-                                            let aw = gyro.acc_weight;
+                                        let prevx = gyro.x.unwrap();
+                                        let prevz = gyro.z.unwrap();
 
-                                            let prevx = gyro.x.unwrap();
-                                            let prevz = gyro.z.unwrap();
+                                        let gyrox = (prevx + gx) % 360.;
+                                        let gyroz = (prevz + gz) % 360.;
 
-                                            let mut gyrox = (prevx + gx) % 360.;
-                                            let mut gyroz = (prevz + gz) % 360.;
+                                        let xr = if signy < 0. {
+                                            gyrox
+                                        } else {
+                                            if gyro.signy < 0. {
+                                                roll
+                                            } else {
+                                                roll * aw + gyrox * (1. - aw)
+                                            }
+                                        };
 
-                                            // if gyrox > 179.5 {
-                                            //     println!("1");
-                                            //     gyrox -= 360.;
-                                            // }
-                                            // if gyrox < -179.5 {
-                                            //     println!("2");
-                                            //     gyrox += 360.;
-                                            // }
-                                            // if gyroz > 179.5 {
-                                            //     println!("3");
-                                            //     gyroz -= 360.;
-                                            // }
-                                            // if gyroz < -179.5 {
-                                            //     println!("4");
-                                            //     gyroz += 360.;
-                                            // }
+                                        let zr = if signy < 0. {
+                                            gyroz
+                                        } else {
+                                            if gyro.signy < 0. {
+                                                pitch
+                                            } else {
+                                                pitch * aw + gyroz * (1. - aw)
+                                            }
+                                        };
 
-                                            // let gyrox = gyrox.rem_euclid(360. / 180. * PI);
-                                            // let gyroz = gyroz.rem_euclid(360. / 180. * PI);
-
-                                            let xr = roll * aw + gyrox * (1. - aw);
-                                            let zr = pitch * aw + gyroz * (1. - aw);
-
-                                            println!("sign: {}\n\ngyroxt: {}\ngyrozt: {}\n\nroll: {}\npitch: {}\n\nestimated x: {}\nestimated z: {}\n\n\n",
+                                        println!("sign: {}\n\ngyroxt: {}\ngyrozt: {}\n\nroll: {}\npitch: {}\n\nestimated x: {}\nestimated z: {}\n\n\n",
                                                 signy,
                                                 gyrox / PI * 180.,
                                                 gyroz / PI * 180.,
@@ -406,15 +349,29 @@ pub fn gyro_update(mut port: ResMut<Port>, mut query: Query<(&mut Transform, &mu
                                                 zr / PI * 180.,
                                             );
 
-                                            telo.rotation =
-                                                Quat::from_euler(EulerRot::XYZ, xr, 0.0, zr);
-                                            gyro.x = Some(xr);
-                                            gyro.z = Some(zr);
-                                        } else {
-                                            gyro.x = Some(roll);
-                                            gyro.y = Some(0.);
-                                            gyro.z = Some(pitch);
-                                        }
+                                        telo.rotation = Quat::IDENTITY;
+                                        telo.rotate_local_x(xr);
+                                        telo.rotate_local_z(zr);
+
+                                        // if signy < 0.0 {
+                                        //     telo.rotate_local_z(-PI);
+                                        // }
+
+                                        // telo.rotation =
+                                        //     Quat::from_euler(EulerRot::XYZ, xr, 0.0, zr).to_euler(EulerRot::XYZ);
+
+                                        // let rotation_this_frame =
+                                        //     Quat::from_axis_angle(Vec3::X, xr)
+                                        //         * Quat::from_axis_angle(Vec3::Z, zr);
+                                        // telo.rotation = Quat::NAN * rotation_this_frame;
+
+                                        gyro.signy = signy;
+                                        gyro.x = Some(xr);
+                                        gyro.z = Some(zr);
+                                    } else {
+                                        gyro.x = Some(roll);
+                                        gyro.y = Some(0.);
+                                        gyro.z = Some(pitch);
                                     }
                                 }
                             }
