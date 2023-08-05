@@ -188,7 +188,6 @@ pub struct GyroComponent {
     pub acc_weight: f32,
     pub state: GyroState,
     pub rotation: Option<Quat>,
-    pub offset: Vec3,
     pub variant: DroneVariant,
 }
 
@@ -201,7 +200,7 @@ pub enum DroneVariant {
 
 pub enum GyroState {
     Calibration(Vec<Vec3>),
-    Active,
+    Active { offset: Vec3 },
 }
 
 impl Plugin for GyroPlugin {
@@ -212,8 +211,29 @@ impl Plugin for GyroPlugin {
 }
 
 // const INIT_ACC_WEIGHT: f32 = 0.;
-// const INIT_ACC_WEIGHT: f32 = 0.08;
-const INIT_ACC_WEIGHT: f32 = 1.;
+const INIT_ACC_WEIGHT: f32 = 0.08;
+// const INIT_ACC_WEIGHT: f32 = 1.;
+
+fn drone_pbr_bundle(asset_server: &AssetServer, materials: &mut Assets<StandardMaterial>, offset: Vec3, color: Color) -> PbrBundle {
+    PbrBundle {
+        mesh: asset_server.load("Drone2.obj"),
+        material: materials.add(StandardMaterial {
+            base_color: color,
+            ..Default::default()
+        }),
+        transform: Transform::from_translation(offset).with_scale([1.; 3].into()),
+        ..default()
+    }
+}
+
+fn gyro_component(variant: DroneVariant) -> GyroComponent {
+    GyroComponent {
+        acc_weight: INIT_ACC_WEIGHT,
+        state: GyroState::Calibration(vec![]),
+        rotation: None,
+        variant,
+    }
+}
 
 pub fn gyro_spawn(
     mut coms: Commands,
@@ -221,60 +241,16 @@ pub fn gyro_spawn(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     coms.spawn((
-        PbrBundle {
-            mesh: asset_server.load("Drone2.obj"),
-            material: materials.add(StandardMaterial {
-                base_color: Color::RED,
-                ..Default::default()
-            }),
-            transform: Transform::from_scale([1.; 3].into()),
-            ..default()
-        },
-        GyroComponent {
-            acc_weight: INIT_ACC_WEIGHT,
-            state: GyroState::Calibration(vec![]),
-            rotation: None,
-            offset: Vec3::ZERO,
-            variant: DroneVariant::Both,
-        },
+        drone_pbr_bundle(&asset_server, &mut materials, Vec3::ZERO, Color::RED),
+        gyro_component(DroneVariant::Both),
     ));
     coms.spawn((
-        PbrBundle {
-            mesh: asset_server.load("Drone2.obj"),
-            material: materials.add(StandardMaterial {
-                base_color: Color::BLUE,
-                ..Default::default()
-            }),
-            // transform: Transform::from_scale([1.; 3].into()),
-            transform: Transform::from_xyz(7., 0., 0.).with_scale([1.; 3].into()),
-            ..default()
-        },
-        GyroComponent {
-            acc_weight: INIT_ACC_WEIGHT,
-            state: GyroState::Calibration(vec![]),
-            rotation: None,
-            offset: Vec3::ZERO,
-            variant: DroneVariant::Gyro,
-        },
+        drone_pbr_bundle(&asset_server, &mut materials, Vec3::new(7.0, 0.0, 0.0), Color::BLUE),
+        gyro_component(DroneVariant::Gyro),
     ));
     coms.spawn((
-        PbrBundle {
-            mesh: asset_server.load("Drone2.obj"),
-            material: materials.add(StandardMaterial {
-                base_color: Color::YELLOW,
-                ..Default::default()
-            }),
-            // transform: Transform::from_scale([1.; 3].into()),
-            transform: Transform::from_xyz(-7., 0., 0.).with_scale([1.; 3].into()),
-            ..default()
-        },
-        GyroComponent {
-            acc_weight: INIT_ACC_WEIGHT,
-            state: GyroState::Calibration(vec![]),
-            rotation: None,
-            offset: Vec3::ZERO,
-            variant: DroneVariant::Acc,
-        },
+        drone_pbr_bundle(&asset_server, &mut materials, Vec3::new(-7.0, 0.0, 0.0), Color::YELLOW),
+        gyro_component(DroneVariant::Acc),
     ));
 }
 
@@ -284,54 +260,60 @@ pub fn gyro_update(mut port: ResMut<Port>, mut query: Query<(&mut Transform, &mu
         match p.try_recv() {
             Ok(v) => {
                 // IN DRONE COORDINATE SYSTEM
-                let gyro_vec = Vec3::new(v[0], v[1], v[2]);
-                let accel_vec = Vec3::new(v[3], v[4], v[5]);
+                let raw_gyro_vec = Vec3::new(v[0], v[1], v[2]);
+                let raw_accel_vec = Vec3::new(v[3], v[4], v[5]);
 
                 let now = Instant::now();
                 for (mut g_body, mut gyro) in query.iter_mut() {
                     match &mut gyro.state {
                         GyroState::Calibration(cal_v) => {
                             info!("calibrate");
-                            cal_v.push(gyro_vec);
+                            cal_v.push(raw_gyro_vec);
                             if cal_v.len() > 100 {
                                 let mean = cal_v.iter().sum::<Vec3>() / cal_v.len() as f32;
-                                gyro.offset = mean;
-                                gyro.state = GyroState::Active;
+                                gyro.state = GyroState::Active { offset: mean };
                             }
                         }
-                        GyroState::Active => {
+                        GyroState::Active { offset } => {
+                            let offset = *offset;
+
                             let aw = match gyro.variant {
                                 DroneVariant::Gyro => 0.0,
                                 DroneVariant::Acc => 1.0,
                                 DroneVariant::Both => gyro.acc_weight,
                             };
 
+                            let gyro_vec = raw_gyro_vec - offset;
+
                             if let Some(then) = port.last_transmission {
                                 let dt = then.elapsed().as_secs_f32();
-                                let gv = (gyro_vec - gyro.offset) * dt;
 
-                                let gyro_d_rotation = Quat::from_euler(EulerRot::XYZ, gv.x, 0.0, gv.z);
+                                let orientation_by_gyro = |current_orientation: Quat| {
+                                    let gyro_d_rotation = Quat::from_scaled_axis(Vec3::new(-gyro_vec.x, -gyro_vec.y, 0.0) * dt);
+                                    gyro_d_rotation * current_orientation
+                                };
 
-                                let roll = f32::atan2(-accel_vec.y, accel_vec.z);;
-                                let pitch = f32::atan2(accel_vec.x, accel_vec.yz().length());
-                                let by_accel_rotation = Quat::from_euler(EulerRot::ZXY, -0.0, roll, pitch);
+                                let orientation_by_accel = {
+                                    let roll = f32::atan2(-raw_accel_vec.y, raw_accel_vec.z);
+                                    let pitch = f32::atan2(raw_accel_vec.x, raw_accel_vec.yz().length());
+                                    Quat::from_euler(EulerRot::ZXY, 0.0, roll, pitch)
+                                };
 
-                                if gyro.rotation.is_some() {
-                                    let prev = gyro.rotation.unwrap();
-                                    let new_gyro = gyro_d_rotation * prev;
-                                    let total_rotation = Quat::lerp(new_gyro, by_accel_rotation, aw);
-
-                                    gyro.rotation = Some(total_rotation);
-                                } else {
-                                    gyro.rotation = Some(by_accel_rotation);
+                                match gyro.rotation {
+                                    Some(current_orientation) => {
+                                        let orientation_by_gyro = orientation_by_gyro(current_orientation);
+                                        let weighted_orientation = Quat::lerp(orientation_by_gyro, orientation_by_accel, aw);
+                                        gyro.rotation = Some(weighted_orientation)
+                                    }
+                                    None => gyro.rotation = Some(orientation_by_accel),
                                 }
 
                                 // convert drone frame coordinate system to graphical
-                                let frame_angled_to_g_body = |q: Quat| {
+                                let frame_to_g_body_orientation = |q: Quat| {
                                     let (v, a) = q.to_axis_angle();
                                     Quat::from_axis_angle(Vec3::new(v.y, -v.z, v.x), a)
                                 };
-                                g_body.rotation = frame_angled_to_g_body(gyro.rotation.unwrap());
+                                g_body.rotation = frame_to_g_body_orientation(gyro.rotation.unwrap());
                             }
                         }
                     }
