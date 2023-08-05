@@ -34,7 +34,7 @@ impl Default for MyApp {
             x: 0.,
             port: Port {
                 rx: Some(open(std::path::Path::new("/dev/ttyUSB0"), 115200)),
-                last_transmition: None,
+                last_transmission: None,
             },
             prev: [0.; 12],
         }

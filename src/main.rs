@@ -17,9 +17,9 @@ use winit::window::Icon;
 fn main() {
     App::new()
         .insert_resource(Port {
-            rx: Some(open(std::path::Path::new("/dev/ttyUSB0"), 115200)),
+            rx: Some(open(std::path::Path::new("/dev/ttyUSB0"), 57600)),
             // rx: Some(open_tcp()),
-            last_transmition: None,
+            last_transmission: None,
         })
         // .insert_resource(Msaa::Off)
         // .insert_resource(ClearColor(
@@ -76,9 +76,21 @@ fn setup_camera(mut commands: Commands) {
     //         ..Default::default()
     //     },
     // );
+    commands.spawn(PointLightBundle {
+        // transform: Transform::from_xyz(5.0, 8.0, 2.0),
+        transform: Transform::from_xyz(0.0, 12.0, 0.0),
+        point_light: PointLight {
+            intensity: 1600.0, // lumens - roughly a 100W non-halogen incandescent bulb
+            color: Color::WHITE,
+            shadows_enabled: false,
+            ..default()
+        },
+        ..default()
+    });
     commands.spawn(Camera3dBundle {
         // transform: Transform::from_xyz(0., 0., -15.).looking_at(Vec3::new(0., 0., 0.), Vec3::Y),
-        transform: Transform::from_xyz(0., 15., 0.).looking_at(Vec3::new(0., 0., 0.), Vec3::X),
+        transform: Transform::from_xyz(0., 0.0, 15.).looking_at(Vec3::new(0., 0., 0.), Vec3::Y),
+        // transform: Transform::from_xyz(0., 15., 0.).looking_at(Vec3::new(0., 0., 0.), Vec3::X),
         ..default()
     });
 }
