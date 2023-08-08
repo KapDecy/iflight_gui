@@ -2471,6 +2471,7 @@ dependencies = [
  "bevy_egui",
  "bevy_kira_audio",
  "bevy_obj",
+ "bytemuck",
  "crossbeam-channel",
  "eframe",
  "embed-resource",

@@ -1,6 +1,7 @@
 // disable console on windows for release builds
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::f32::consts::PI;
 use std::io::Cursor;
 
 use bevy::prelude::*;
@@ -15,10 +16,13 @@ use gui::gyro::{open, open_tcp, GyroComponent, GyroPlugin, Port};
 use winit::window::Icon;
 
 fn main() {
+    // let (cmd_tx, drone_state_rx) = open(std::path::Path::new("/dev/ttyUSB0"), 57600);
+    let (cmd_tx, drone_state_rx) = open_tcp("99.22.0.1:9922");
+
     App::new()
         .insert_resource(Port {
-            rx: Some(open(std::path::Path::new("/dev/ttyUSB0"), 57600)),
-            // rx: Some(open_tcp()),
+            rx: Some(drone_state_rx),
+            // rx: Some(open_tcp("99.22.0.1:9922")),
             last_transmission: None,
         })
         // .insert_resource(Msaa::Off)
@@ -109,13 +113,16 @@ fn ui_example_system(mut contexts: EguiContexts, mut query: Query<&mut GyroCompo
     egui::CentralPanel::default()
         .frame(Frame::default().fill(Color32::TRANSPARENT))
         .show(ctx, |ui| {
-            let rt = egui::widgets::Label::new(
-                RichText::new("Accelerometer weight in camputations")
-                    .background_color(Color32::BLUE)
-                    .color(Color32::YELLOW)
-                    .size(15.),
-            );
-            ui.add(rt);
-            ui.add(egui::Slider::new(&mut gyro.acc_weight, 0.0..=1.0));
+            // let rt = egui::widgets::Label::new(
+            //     RichText::new("Accelerometer weight in camputations")
+            //         .background_color(Color32::BLUE)
+            //         .color(Color32::YELLOW)
+            //         .size(15.),
+            // );
+            // ui.add(rt);
+            // ui.add(egui::Slider::new(&mut gyro.acc_weight, 0.0..=1.0));
+            // let to_deg = |x: f32| x * 180.0 / PI;
+            // ui.label(format!("pitch: {:.0} deg", to_deg(gyro.pitch_roll.0)));
+            // ui.label(format!("roll: {:.0} deg", to_deg(gyro.pitch_roll.1)));
         });
 }

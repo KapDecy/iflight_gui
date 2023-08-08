@@ -57,6 +57,7 @@ rand = { version = "0.8.5" }
 
 crossbeam-channel = { version = "0.5.8" }
 serialport = { version = "4.2.1" }
+bytemuck = "1.13.1"
 
 # keep the following in sync with Bevy's dependencies
 winit = { version = "0.28", default-features = false }
