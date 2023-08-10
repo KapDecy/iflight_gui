@@ -35,12 +35,7 @@ pub struct ImuState {
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 #[repr(C)]
 pub struct DroneState {
-    pub imu1: ImuState,
-    pub imu2: ImuState,
-    pub cal_imu1: ImuState,
-    pub cal_imu2: ImuState,
-    pub main_imu: ImuState,
-    pub orientation: [f32; 4], // unit quaternion
+    pub orientation: [f32; 4],
 }
 
 
@@ -50,9 +45,8 @@ fn run_communication<S>(mut port: S) -> (Sender<DroneCmd>, Receiver<DroneState>)
 
     println!("Running communication thread...");
     std::thread::spawn(move || {
-        let mut buf = [0u8; 1];
+        let mut buf = Vec::with_capacity(256);
         loop {
-            println!("get current drone state...");
             if !cmd_rx.is_empty() {
                 let cmd = cmd_rx.recv().unwrap();
                 match cmd {
@@ -65,16 +59,15 @@ fn run_communication<S>(mut port: S) -> (Sender<DroneCmd>, Receiver<DroneState>)
                 }
             }
 
-
-            println!("Send GetState");
-            port.write_all(&[3, 2]).unwrap();
-            println!("cmd sent.");
-            match port.read_exact(&mut buf) {
-                Ok(()) => {
-                    let drone_state: &DroneState = bytemuck::from_bytes(&buf);
-                    drone_state_tx.try_send(drone_state.clone());
-                    // drone_state_tx.send(drone_state.clone()).unwrap();
+            let mut buf_read = BufReader::new(&mut port);
+            buf.clear();
+            match buf_read.read_until(255, &mut buf) {
+                Ok(17) => {
+                    let drone_state: &DroneState = bytemuck::from_bytes(&buf[0..16]);
+                    println!("{:?}", drone_state.orientation);
+                    drone_state_tx.send(drone_state.clone()).unwrap();
                 }
+                Ok(_) => (),
                 Err(e) => {
                     if !matches!(e.kind(), std::io::ErrorKind::TimedOut) {
                         exit(1);
@@ -184,7 +177,7 @@ pub fn gyro_update(mut port: ResMut<Port>, mut query: Query<(&mut Transform, &mu
 
                     let frame_to_g_body_orientation = |q: Quat| {
                         let (v, a) = q.to_axis_angle();
-                        Quat::from_axis_angle(Vec3::new(v.y, -v.z, v.x), a)
+                        Quat::from_axis_angle(Vec3::new(-v.y, -v.z, v.x), a)
                     };
                     g_body.rotation = frame_to_g_body_orientation(rotation);
                 }
